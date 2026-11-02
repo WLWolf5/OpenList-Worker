@@ -82,7 +82,7 @@ function main() {
 
   // 部署：wrangler 自动预配 KV（首次创建 openlist-tsworkers-kv，二次 inherit 复用）
   console.log("\n[部署] 正在部署到 Cloudflare Workers ...")
-  run("npx wrangler deploy")
+  run("npx wrangler deploy --secrets-file /tmp/secret.env && rm -rf /tmp/secret.env")
 
   console.log("\n✅ 部署完成！")
   console.log("   验证：访问 https://<你的域名>/api/health 应返回 OpenList")

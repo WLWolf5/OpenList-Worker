@@ -1,0 +1,125 @@
+name: Deploy to Cloudflare Workers
+
+on:
+  workflow_dispatch:
+    inputs:
+      worker_name:
+        type: string
+        description: 'Worker Name'
+        required: false
+        default: 'openlist-worker'
+      enable_log:
+        type: boolean
+        description: 'Enable Log'
+        required: false
+        default: true
+      db_format:
+        type: choice
+        options:
+          - map
+          - key
+          - sql
+        description: 'DB Format'
+        required: true
+        default: 'sql'
+      db_driver:
+        type: choice
+        options:
+          - auto
+          - d1
+          - cfkv
+          - kv
+          - do
+          - blob
+          - mysql
+        description: 'DB Driver'
+        required: true
+        default: 'd1'
+      db_cipher:
+        type: choice
+        options:
+          - none
+          - aes-256-gcm
+          - aes-256-gcm-pbkdf2
+          - aes-256-cbc-hmac
+          - chacha20-poly1305
+          - des-cbc-hmac
+          - 3des-cbc-hmac
+        description: 'DB Cipher'
+        required: true
+        default: 'aes-256-gcm'
+      cache_driver:
+        type: choice
+        options:
+          - none
+          - db
+          - kv
+          - cfkv
+          - do
+          - blob
+        description: 'Cache Driver'
+        required: true
+        default: 'db'
+      max_upload:
+        type: string
+        description: 'Upload max size (Default:5GB)'
+        required: false
+        default: '5368709120'
+      max_uppart:
+        type: string
+        description: 'Chunk max size (Default:100MB)'
+        required: false
+        default: '104857600'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # 仅在配置了 Cloudflare API Token 时运行
+    steps:
+      - name: Check deployment config
+        id: check
+        run: |
+          if [ -z "${{ secrets.CLOUDFLARE_API_TOKEN }}" ]; then
+            echo "CLOUDFLARE_API_TOKEN not configured, skipping Worker deployment"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout
+        if: steps.check.outputs.skip != 'true'
+        uses: actions/checkout@v6
+
+      - name: Generate wrangler config
+        id: config
+        if: steps.check.outputs.skip != 'true'
+        env:
+          WORKER_NAME: ${{ inputs.worker_name || secrets.WORKER_NAME }}
+          ADMIN_PASS: ${{ secrets.ADMIN_PASS }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+          ALLOW_URLS: ${{ secrets.ALLOW_URLS }}
+          DB_FORMAT: ${{ inputs.db_format }}
+          DB_DRIVER: ${{ inputs.db_driver }}
+          DB_CIPHER: ${{ inputs.db_cipher }}
+          MAX_UPLOAD: ${{ inputs.max_upload }}
+          MAX_UPPART: ${{ inputs.max_uppart }}
+          ENABLE_LOG: ${{ inputs.enable_log }}
+        run: |
+          rm -rf wrangler.jsonc
+          chmod +x generate-conf.sh
+          ./generate-conf.sh
+
+      - name: Install dependencies
+        if: steps.check.outputs.skip != 'true'
+        run: npm install --force
+
+      - name: Deploy to Cloudflare Workers
+        id: deploy
+        if: steps.check.outputs.skip != 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          node scripts/deploy.js
